@@ -4,5 +4,5 @@ I provide the program code and cable schematic as well as additional display uni
 
 based on : <a href="https://wokwi.com/projects/389899837670231041">Muhammad Ikhwan Fathulloh</a> and <a href="https://wokwi.com/projects/332962439743144532">Taylor Wang</a> and <a  href="https://medium.com/@sonyalfathani/esp32-to-modbuss-52b7265fa6de">Sony Alfathani</a> for help me create code
 
-![Wiring Schematic](schematic.JPG)
+![Wiring Schematic](Schematic.JPG)
 
