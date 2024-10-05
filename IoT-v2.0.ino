@@ -26,6 +26,8 @@ const int kontakCount = sizeof(kontakPins) / sizeof(kontakPins[0]);
 
 float temp = 0, humi = 0;
 
+SemaphoreHandle_t xMutex;
+
 void connect() {
   Serial.print("checking wifi...");
   while (WiFi.status() != WL_CONNECTED) {
@@ -143,55 +145,74 @@ void rotary(void *ptParam) {
 
 }
 
-void lcdTask(void *ptParam) {
+void updateDisplay(float temp, float humidity, float rotaryPos) {
+  // Take the mutex before accessing the display
+  xSemaphoreTake(xMutex, portMAX_DELAY);
 
-  oled.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS); 
+  oled.clearDisplay(); 
 
-  oled.clearDisplay(); // clear display  
-  oled.setTextSize(1);         // set text size
-  oled.setTextColor(WHITE);    // set text color
-  oled.setCursor(0, 2);       // set position to display (x,y)
-  oled.println("MJ Mokhtar"); // set text
-  oled.setCursor(0, 13);       // set position to display (x,y)
-  oled.println("Monitoring Sensor"); // set text
+  // Static texts
+  oled.setCursor(0, 2);
+  oled.println("MJ Mokhtar");
+  oled.setCursor(0, 13);
+  oled.println("Monitoring Sensor");
+
+  // Sensor readings
+  oled.setCursor(0, 24);
+  oled.println("T: " + String(temp, 2) + " " + char(247) + "C");
+  oled.setCursor(0, 35);
+  oled.println("%RH: " + String(humidity, 1) + " %");
+  oled.setCursor(0, 46);
+  oled.println("X: " + String(rotaryPos) + " mm");
+
   oled.display();
 
+  // Give the mutex back
+  xSemaphoreGive(xMutex);
+}
+
+void lcdTask(void *ptParam) {
+  oled.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS); 
+  oled.setTextSize(1);
+  oled.setTextColor(WHITE);
+
+  // Initialize the mutex
+  xMutex = xSemaphoreCreateMutex();
+
+  float lastTemperature = 0.0;
+  float lastHumidity = 0.0;
+  float lastRotaryPosition = 0.0;
 
   SENSOR data;
   while (1) {
-    //TickType_t timeOut = portMAX_DELAY;
-    TickType_t timeOut = 2000;
+    TickType_t timeOut = 2000 / portTICK_PERIOD_MS;
     if (xQueueReceive(queueSensor, &data, timeOut) == pdPASS) {
 
       switch (data.deviceID) {
-        case TRH_ID:          
-          oled.setCursor(0, 24);       // set position to display (x,y)
-          oled.println("T: " +  String(data.value1, 2) +" "+ char(247) +"C"); // set text
-          oled.setCursor(0, 35);       // set position to display (x,y)
-          oled.println("%RH : " + String(data.value2, 1) + " %"); // set text
-          oled.display();
-          oled.clearDisplay(); // clear display
+        case TRH_ID:
+          lastTemperature = data.value1;
+          lastHumidity = data.value2;
           break;
           
         case ROTARY_ID:
-          oled.setCursor(0, 46);       // set position to display (x,y)
-          oled.println("X: " + String(data.value1) + " mm"); // set text          
-          oled.display();
-          oled.clearDisplay(); // clear display
+          lastRotaryPosition = data.value1;
           break;
 
         default:
-          Serial.println("LCD: Unkown Device");
+          Serial.println("LCD: Unknown Device");
           break;
       }
-    }  else {
+    } else {
       Serial.println("LCD: Message Queue is Empty");
-    };
+    }
 
-  oled.clearDisplay(); // clear display    
-  vTaskDelay(2000);
+    // Update the display with the latest readings
+    updateDisplay(lastTemperature, lastHumidity, lastRotaryPosition);
+
+    vTaskDelay(2000 / portTICK_PERIOD_MS);
   }
 }
+
 
 void mqttLoop(void *pvParameters) {
   for (;;) {
@@ -222,7 +243,9 @@ void setup()
   // start wifi and mqtt
   WiFi.begin(ssid, pass);
   client.begin("192.168.XX.XX", 1883, net);
-  
+
+  // Initialize the mutex
+  xMutex = xSemaphoreCreateMutex();
 
   xTaskCreate(trh, "TRH", 1024 * 4, NULL, 1, NULL);
   xTaskCreate(rotary, "Roraty", 1024 * 4, NULL, 1, NULL);
